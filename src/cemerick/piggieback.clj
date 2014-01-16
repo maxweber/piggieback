@@ -14,7 +14,9 @@
             [cljs.repl :as cljsrepl]
             [cljs.analyzer :as ana]
             [cljs.tagged-literals :as tags]
-            [cljs.repl.rhino :as rhino])
+            [cljs.repl.rhino :as rhino]
+            [cljs.repl.server]
+            [cljs.repl.browser])
   (:import (org.mozilla.javascript Context ScriptableObject)
            java.io.StringReader))
 
@@ -73,6 +75,16 @@
   (set! *ns* *original-clj-ns*)
   (set! *original-clj-ns* nil))
 
+(defn- is-cljs-repl-server-env? [repl-env]
+  (instance? cljs.repl.browser.BrowserEnv repl-env))
+
+(defn- cljs-repl-server-connection-available? []
+  (boolean (:connection @cljs.repl.server/state)))
+
+(defn- cljs-repl-server-connection-closed? []
+  (when-let [con (:connection @cljs.repl.server/state)]
+    (.isClosed con)))
+
 (defn cljs-eval
   "Evaluates the expression [expr] (should already be read) using the
    given ClojureScript REPL environment [repl-env] and a map of
@@ -100,6 +112,13 @@
                           (reset! escaping-ns ana/*cljs-ns*))]
            (cond
             (= expr :cljs/quit) (do (quit-cljs-repl) :cljs/quit)
+
+            (and (is-cljs-repl-server-env? repl-env)
+            (not (cljs-repl-server-connection-available?))) "PIGGIEBACK: no browser connection available"
+
+            (and (is-cljs-repl-server-env? repl-env)
+                 (cljs-repl-server-connection-closed?))
+            (do (quit-cljs-repl) "PIGGIEBACK: the cljs repl session has been closed, since the connection to the browser was lost")
 
             (and (seq? expr) (find special-fns (first expr)))
             (returning
